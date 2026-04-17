@@ -1,0 +1,53 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86/64
+          - ramips/mt7621
+          - aarch64/generic
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup SDK
+      run: |
+        TARGET=$(echo ${{ matrix.target }} | cut -d'/' -f1)
+        SUB=$(echo ${{ matrix.target }} | cut -d'/' -f2)
+
+        wget https://downloads.openwrt.org/releases/23.05.0/targets/$TARGET/$SUB/openwrt-sdk.tar.xz
+        tar xf openwrt-sdk.tar.xz
+        mv openwrt-sdk* sdk
+
+    - name: Build
+      run: |
+        cd sdk
+        echo "src-link local $(pwd)/../" >> feeds.conf
+        ./scripts/feeds update -a
+        ./scripts/feeds install luci-app-onlineupgrade
+        make package/luci-app-onlineupgrade/compile V=s
+
+    - name: Collect
+      run: |
+        mkdir -p release
+        find sdk/bin/packages -name "*.ipk" -exec cp {} release/ \;
+
+    - name: Generate SHA256
+      run: |
+        cd release
+        sha256sum *.ipk > sha256.txt
+
+    - name: Upload Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

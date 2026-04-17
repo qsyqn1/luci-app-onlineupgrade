@@ -2,11 +2,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-onlineupgrade
-PKG_VERSION:=1.0.0
+PKG_VERSION:=3.0.0
 PKG_RELEASE:=1
 
-LUCI_TITLE:=LuCI App Online Upgrade
-LUCI_DEPENDS:=+lua +luci-base +curl
+LUCI_TITLE:=LuCI Online Upgrade V3
+LUCI_DEPENDS:=+lua +luci-base +curl +ubus +ubusd
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -22,10 +22,10 @@ endef
 
 define Package/luci-app-onlineupgrade/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) ./root/usr/bin/onlineupgrade.sh $(1)/usr/bin/
+	$(INSTALL_BIN) ./root/usr/bin/ota.sh $(1)/usr/bin/
 
 	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_CONF) ./root/etc/config/onlineupgrade $(1)/etc/config/
+	$(INSTALL_CONF) ./root/etc/config/ota $(1)/etc/config/
 endef
 
 $(eval $(call BuildPackage,luci-app-onlineupgrade))

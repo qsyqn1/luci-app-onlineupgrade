@@ -1,7 +1,10 @@
 
-# luci-app-onlineupgrade
+# OTA V3
 
-OpenWrt / ImmortalWrt online upgrade plugin scaffold.
+- firmware list UI
+- OTA start/monitor
+- log streaming (polling)
+- sysupgrade simulation
 
-## build
-git tag v1.0.0 && git push origin v1.0.0
+## real upgrade entry
+/usr/bin/ota.sh

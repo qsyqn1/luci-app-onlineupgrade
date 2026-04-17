@@ -1,5 +1,5 @@
 
-name: build
+name: build-ota-v3
 
 on:
   push:
@@ -11,4 +11,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "build openwrt package"
+      - run: echo "build OTA v3 package"

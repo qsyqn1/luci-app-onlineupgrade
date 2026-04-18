@@ -96,8 +96,18 @@ jobs:
         if: env.SDK_EXISTS == 'true'
         run: |
           mkdir -p release
-          find sdk/bin/packages -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
           
+          # 【关键修复】从 sdk/bin 目录开始递归搜索，忽略路径层级报错
+          # 使用 -path 排除不需要的目录，提高搜索效率
+          find sdk/bin -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
+          
+          # 检查是否真的拷贝到了文件
+          if [ -z "$(ls -A release)" ]; then
+            echo "❌ 错误: 未能在 sdk/bin 中找到编译好的 .ipk 文件"
+            exit 1
+          fi
+          
+          # 处理架构名称
           ARCH_NAME=$(echo "${{ matrix.target }}" | tr '/' '_')
           echo "ARCH_ID=${ARCH_NAME}" >> $GITHUB_ENV
           
@@ -110,7 +120,10 @@ jobs:
           cd release
           for f in *.ipk; do
             if [ -f "$f" ]; then
-              mv "$f" "${TAG_NAME}_${ARCH_NAME}_$f"
+              # 避免重复重命名（防止 find 拷贝了多次）
+              if [[ "$f" != "${TAG_NAME}_"* ]]; then
+                mv "$f" "${TAG_NAME}_${ARCH_NAME}_$f"
+              fi
             fi
           done
 

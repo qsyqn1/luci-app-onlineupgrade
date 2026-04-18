@@ -58,19 +58,19 @@ jobs:
       - name: Collect and Rename
         run: |
           mkdir -p release
-          # 使用 find 寻找生成的 ipk 文件并拷贝到 release 目录
+          # 1. 将编译好的 ipk 找出来并拷贝到 release 目录
           find sdk/bin/packages -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
           
-          # 进入目录进行重命名，移除路径干扰
+          # 2. 在 Shell 中处理架构名（将 / 替换为 _）
+          # 例如 x86/64 变为 x86_64
+          ARCH_NAME=$(echo "${{ matrix.target }}" | tr '/' '_')
+          TAG_NAME="${{ github.ref_name }}"
+          
+          # 3. 进入目录执行重命名
           cd release
           for f in *.ipk; do
-            # 修正后的语法：使用 replace 函数将架构中的 / 替换为 _
-            mv "$f" "${{ github.ref_name }}_${{ replace(matrix.target, '/', '_') }}_$f"
+            if [ -f "$f" ]; then
+              echo "Renaming $f to ${TAG_NAME}_${ARCH_NAME}_$f"
+              mv "$f" "${TAG_NAME}_${ARCH_NAME}_$f"
+            fi
           done
-
-      - name: Upload Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/*.ipk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

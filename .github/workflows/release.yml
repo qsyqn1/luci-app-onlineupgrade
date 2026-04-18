@@ -69,21 +69,23 @@ jobs:
         run: |
           cd sdk
           
-          # 1. 彻底清理并重新初始化 Feeds
-          # 有时软链接会导致索引混乱，我们先清理
+          # 1. 彻底清理并重新初始化
           rm -rf package/luci-app-onlineupgrade
           mkdir -p package/luci-app-onlineupgrade
-          cp -r ../* package/luci-app-onlineupgrade/
           
+          # 【关键修复】只拷贝项目源码，排除 sdk 目录本身
+          # 我们通过 find 找到根目录下除 sdk 外的所有内容并拷贝
+          find .. -maxdepth 1 ! -name "sdk" ! -name ".." ! -name "." -exec cp -r {} package/luci-app-onlineupgrade/ \;
+          
+          # 2. 刷新 Feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 2. 强制写入配置
-          # 使用 'y' 而不是 'm' 有时能解决 SDK 不产出独立包的问题
-          echo "CONFIG_PACKAGE_luci-app-onlineupgrade=y" >> .config
+          # 3. 写入配置 (使用 m 编译独立 ipk)
+          echo "CONFIG_PACKAGE_luci-app-onlineupgrade=m" >> .config
           make defconfig
           
-          # 3. 确定版本号
+          # 4. 确定版本号
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             FINAL_VER="${{ github.event.inputs.pkg_ver }}"
           else
@@ -92,8 +94,9 @@ jobs:
           
           echo "🛠️ 正在编译插件版本: $FINAL_VER"
           
-          # 4. 执行编译
-          # 增加 V=s 查看详细日志，如果这里秒停，日志会告诉我们为什么 skip
+          # 5. 执行编译
+          # 如果之前没产出文件，这里强制使用 clean 再 compile
+          make package/luci-app-onlineupgrade/clean
           make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$FINAL_VER"
           
       - name: Debug Directory Structure

@@ -97,17 +97,30 @@ jobs:
         run: |
           mkdir -p release
           
-          # 【关键修复】从 sdk/bin 目录开始递归搜索，忽略路径层级报错
-          # 使用 -path 排除不需要的目录，提高搜索效率
+          echo "🔍 正在全盘搜索编译出的 IPK 文件..."
+          # 1. 搜索整个 sdk 目录，查找生成的 ipk
+          # 我们排除掉 build_dir 和 staging_dir 以免找错
           find sdk/bin -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
           
-          # 检查是否真的拷贝到了文件
-          if [ -z "$(ls -A release)" ]; then
-            echo "❌ 错误: 未能在 sdk/bin 中找到编译好的 .ipk 文件"
+          # 2. 如果 release 还是空的，尝试搜索整个 sdk 目录（保底方案）
+          if [ -z "$(ls -A release 2>/dev/null)" ]; then
+            echo "⚠️  在 sdk/bin 中未找到，正在扩大搜索范围..."
+            find sdk -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
+          fi
+          
+          # 3. 调试：列出找到的文件
+          echo "📂 已收集到的文件:"
+          ls -R release/
+
+          # 4. 检查是否真的拷贝到了文件
+          if [ -z "$(ls -A release 2>/dev/null)" ]; then
+            echo "❌ 错误: 编译可能失败了，未能在任何地方找到 .ipk 文件"
+            # 打印 sdk 目录结构帮助排查
+            find sdk -maxdepth 4 -name "bin"
             exit 1
           fi
           
-          # 处理架构名称
+          # 5. 处理架构名称
           ARCH_NAME=$(echo "${{ matrix.target }}" | tr '/' '_')
           echo "ARCH_ID=${ARCH_NAME}" >> $GITHUB_ENV
           
@@ -117,11 +130,12 @@ jobs:
             TAG_NAME="${{ github.ref_name }}"
           fi
           
+          # 6. 重命名
           cd release
           for f in *.ipk; do
             if [ -f "$f" ]; then
-              # 避免重复重命名（防止 find 拷贝了多次）
               if [[ "$f" != "${TAG_NAME}_"* ]]; then
+                echo "📝 重命名 $f 为 ${TAG_NAME}_${ARCH_NAME}_$f"
                 mv "$f" "${TAG_NAME}_${ARCH_NAME}_$f"
               fi
             fi

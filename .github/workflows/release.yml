@@ -3,7 +3,7 @@ name: Build & Release (OpenWrt/ImmortalWrt)
 on:
   push:
     tags:
-      - 'v*'  # 当推送 v5.1.1 这种 Tag 时触发自动发布
+      - 'v*'
   workflow_dispatch:
     inputs:
       sdk_ver:
@@ -24,7 +24,7 @@ jobs:
           - x86/64
           - ramips/mt7621
           - aarch64/generic
-          - rockchip/armv8  # 适配您的 XiGuaPi V3 设备
+          - rockchip/armv8
 
     steps:
       - name: Checkout Code
@@ -32,7 +32,6 @@ jobs:
 
       - name: Setup OpenWrt SDK
         run: |
-          # 确定 SDK 版本：优先取手动输入的 sdk_ver，如果是 Tag 触发则默认 23.05.5
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.sdk_ver }}"
           else
@@ -43,13 +42,11 @@ jobs:
           SUB=$(echo ${{ matrix.target }} | cut -d'/' -f2)
           BASE_URL="https://downloads.openwrt.org/releases/$VERSION/targets/$TARGET/$SUB"
           
-          echo "🌐 正在从 $BASE_URL 获取 SDK..."
-          
-          # 动态获取完整的 SDK 文件名（解决文件名中包含复杂编译器信息的问题）
+          echo "🌐 Fetching SDK from $BASE_URL..."
           SDK_NAME=$(curl -sL "$BASE_URL/sha256sums" | grep "openwrt-sdk-" | awk '{print $2}' | head -n 1)
           
           if [ -z "$SDK_NAME" ]; then
-            echo "❌ 错误: 在 $BASE_URL 找不到 SDK，请确认该版本是否存在。"
+            echo "❌ Error: SDK not found at $BASE_URL"
             exit 1
           fi
 
@@ -60,32 +57,27 @@ jobs:
       - name: Build IPK
         run: |
           cd sdk
-          # 将当前源码项目挂载到 SDK 的 package 目录
           ln -s ../../ luci-app-onlineupgrade package/luci-app-onlineupgrade
-          
-          # 更新 Feeds 并安装必要依赖
           ./scripts/feeds update -a
           ./scripts/feeds install luci-base
           
-          # 确定 IPK 的显示版本号
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             FINAL_VER="${{ github.event.inputs.pkg_ver }}"
           else
             FINAL_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           fi
           
-          echo "🛠️ 正在编译插件版本: $FINAL_VER"
-          # 执行编译，并将版本号注入到 Makefile
           make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$FINAL_VER"
 
       - name: Collect and Rename
+        id: collect
         run: |
           mkdir -p release
-          # 搜寻生成的 ipk 并拷贝
           find sdk/bin/packages -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
           
-          # 在 Shell 中处理架构名称中的斜杠
+          # 核心修复：在这里处理好架构名，并存入环境变量供后续步骤使用
           ARCH_NAME=$(echo "${{ matrix.target }}" | tr '/' '_')
+          echo "ARCH_ID=${ARCH_NAME}" >> $GITHUB_ENV
           
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG_NAME="${{ github.event.inputs.pkg_ver }}"
@@ -96,7 +88,6 @@ jobs:
           cd release
           for f in *.ipk; do
             if [ -f "$f" ]; then
-              # 重命名为: 版本_架构_原文件名.ipk
               mv "$f" "${TAG_NAME}_${ARCH_NAME}_$f"
             fi
           done
@@ -104,7 +95,8 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ipk-${{ replace(matrix.target, '/', '_') }}
+          # 核心修复：使用上面存入环境的 ARCH_ID，避开 replace 函数
+          name: ipk-${{ env.ARCH_ID }}
           path: release/*.ipk
 
       - name: Upload to Release

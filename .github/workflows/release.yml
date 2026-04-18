@@ -69,23 +69,29 @@ jobs:
         run: |
           cd sdk
           
-          # 【关键修复】确保在创建软链接前，目标父目录是干净的
-          # 我们直接把项目根目录（../../）映射到 sdk/package/luci-app-onlineupgrade
+          # 1. 建立软链接
           ln -s "$(pwd)/../" "package/luci-app-onlineupgrade"
           
+          # 2. 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install luci-base
           
+          # 3. 核心修复：强制注入插件配置并刷新，避免触发交互式 menuconfig
+          echo "CONFIG_PACKAGE_luci-app-onlineupgrade=m" >> .config
+          make defconfig
+          
+          # 4. 获取版本号
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             FINAL_VER="${{ github.event.inputs.pkg_ver }}"
           else
-            # 如果没有 Tag，取 commit hash 前 7 位作为版本号，防止编译失败
             FINAL_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           fi
           
           echo "🛠️ 正在编译插件版本: $FINAL_VER"
-          # 使用 -j$(nproc) 加速编译
+          # 5. 编译插件
+          # 注意：这里只编译你的插件及其依赖，不编译整个 SDK
           make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$FINAL_VER" -j$(nproc)
+          
       - name: Collect and Rename
         if: env.SDK_EXISTS == 'true'
         run: |

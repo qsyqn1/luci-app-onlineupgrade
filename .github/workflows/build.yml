@@ -1,14 +1,12 @@
-
-name: build-ota-v3
+name: build
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "build OTA v3 package"
+      - run: echo "build ipk"

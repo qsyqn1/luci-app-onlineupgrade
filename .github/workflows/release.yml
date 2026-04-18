@@ -1,4 +1,4 @@
-name: Build & Release
+name: Build & Release (OpenWrt 24.10)
 
 on:
   push:
@@ -14,41 +14,62 @@ jobs:
           - x86/64
           - ramips/mt7621
           - aarch64/generic
+          - rockchip/armv8  # 增加你提到的设备架构支持
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup OpenWrt SDK
         run: |
+          # 定义版本号
+          VERSION="24.10.0"
           TARGET=$(echo ${{ matrix.target }} | cut -d'/' -f1)
           SUB=$(echo ${{ matrix.target }} | cut -d'/' -f2)
           
-          wget https://downloads.openwrt.org/releases/23.05.0/targets/$TARGET/$SUB/openwrt-sdk.tar.xz
-          tar xf openwrt-sdk.tar.xz
-          mv openwrt-sdk* sdk
+          BASE_URL="https://downloads.openwrt.org/releases/$VERSION/targets/$TARGET/$SUB"
+          
+          # 关键点：动态获取完整的 SDK 文件名
+          echo "Fetching SDK filename from $BASE_URL..."
+          SDK_NAME=$(curl -sL "$BASE_URL/sha256sums" | grep "openwrt-sdk-" | awk '{print $2}' | head -n 1)
+          
+          if [ -z "$SDK_NAME" ]; then
+            echo "Error: Could not find SDK for $TARGET/$SUB"
+            exit 1
+          fi
 
-      - name: Build package
+          wget "$BASE_URL/$SDK_NAME"
+          tar xf "$SDK_NAME"
+          mv openwrt-sdk-* sdk
+
+      - name: Build IPK
         run: |
           cd sdk
-          echo "src-link local $(pwd)/../" >> feeds.conf
+          # 将当前源码链接到 SDK 的 package 目录
+          ln -s ../../ luci-app-onlineupgrade
+          
           ./scripts/feeds update -a
-          ./scripts/feeds install luci-app-onlineupgrade
-          make package/luci-app-onlineupgrade/compile V=s
+          ./scripts/feeds install luci-base
+          
+          # 注入版本号编译
+          PKG_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$PKG_VER"
 
-      - name: Collect artifacts
+      - name: Collect and Rename
         run: |
           mkdir -p release
-          find sdk/bin/packages -name "*.ipk" -exec cp {} release/ \;
-
-      - name: Generate checksums
-        run: |
+          # 这里的路径根据 SDK 架构会有所不同，用 find 搜索最稳妥
+          find sdk/bin/packages -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
+          
+          # 自动重命名，方便识别架构
           cd release
-          sha256sum *.ipk > sha256.txt
+          for f in *.ipk; do
+            mv "$f" "${{ github.ref_name }}_${{ matrix.target | replace('/', '_') }}_$f"
+          done
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v1
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
         with:
-          files: release/*
+          files: release/*.ipk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

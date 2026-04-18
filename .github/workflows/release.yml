@@ -69,33 +69,32 @@ jobs:
         run: |
           cd sdk
           
-          # 1. 彻底清理并重新初始化
+          # 1. 物理拷贝源码（排除 sdk 目录），确保文件就在 package 目录下
           rm -rf package/luci-app-onlineupgrade
           mkdir -p package/luci-app-onlineupgrade
-          
-          # 【关键修复】只拷贝项目源码，排除 sdk 目录本身
-          # 我们通过 find 找到根目录下除 sdk 外的所有内容并拷贝
           find .. -maxdepth 1 ! -name "sdk" ! -name ".." ! -name "." -exec cp -r {} package/luci-app-onlineupgrade/ \;
           
-          # 2. 刷新 Feeds
+          # 2. 初始化 Feeds 并强制安装依赖
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 3. 写入配置 (使用 m 编译独立 ipk)
-          echo "CONFIG_PACKAGE_luci-app-onlineupgrade=m" >> .config
-          make defconfig
-          
-          # 4. 确定版本号
+          # 3. 确定版本号
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             FINAL_VER="${{ github.event.inputs.pkg_ver }}"
           else
             FINAL_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           fi
+
+          # 4. 关键：强制生成配置文件并检查是否包含该插件
+          # 如果这里 grep 不到，说明 Makefile 里的 PKG_NAME 有问题
+          echo "CONFIG_PACKAGE_luci-app-onlineupgrade=m" > .config
+          make defconfig
           
-          echo "🛠️ 正在编译插件版本: $FINAL_VER"
-          
-          # 5. 执行编译
-          # 如果之前没产出文件，这里强制使用 clean 再 compile
+          echo "🛠️ 检查配置状态:"
+          grep "CONFIG_PACKAGE_luci-app-onlineupgrade" .config || echo "❌ 插件未被选中"
+
+          echo "🛠️ 开始编译插件版本: $FINAL_VER"
+          # 5. 强制清理并编译
           make package/luci-app-onlineupgrade/clean
           make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$FINAL_VER"
           

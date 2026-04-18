@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  # 【新增】手动触发配置
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '手动构建的版本号 (例如 5.1.1)'
+        required: false
+        default: 'manual-build'
 
 jobs:
   build:
@@ -14,7 +21,7 @@ jobs:
           - x86/64
           - ramips/mt7621
           - aarch64/generic
-          - rockchip/armv8  # 增加你提到的设备架构支持
+          - rockchip/armv8
 
     steps:
       - name: Checkout code
@@ -22,14 +29,11 @@ jobs:
 
       - name: Setup OpenWrt SDK
         run: |
-          # 定义版本号
           VERSION="24.10.0"
           TARGET=$(echo ${{ matrix.target }} | cut -d'/' -f1)
           SUB=$(echo ${{ matrix.target }} | cut -d'/' -f2)
-          
           BASE_URL="https://downloads.openwrt.org/releases/$VERSION/targets/$TARGET/$SUB"
           
-          # 关键点：动态获取完整的 SDK 文件名
           echo "Fetching SDK filename from $BASE_URL..."
           SDK_NAME=$(curl -sL "$BASE_URL/sha256sums" | grep "openwrt-sdk-" | awk '{print $2}' | head -n 1)
           
@@ -45,32 +49,49 @@ jobs:
       - name: Build IPK
         run: |
           cd sdk
-          # 将当前源码链接到 SDK 的 package 目录
-          ln -s ../../ luci-app-onlineupgrade
+          ln -s ../../ luci-app-onlineupgrade package/luci-app-onlineupgrade
           
           ./scripts/feeds update -a
           ./scripts/feeds install luci-base
           
-          # 注入版本号编译
-          PKG_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          # 【逻辑优化】判断是 Tag 触发还是手动触发
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PKG_VER="${{ github.event.inputs.version }}"
+          else
+            PKG_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          fi
+          
           make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$PKG_VER"
 
       - name: Collect and Rename
         run: |
           mkdir -p release
-          # 1. 将编译好的 ipk 找出来并拷贝到 release 目录
           find sdk/bin/packages -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
           
-          # 2. 在 Shell 中处理架构名（将 / 替换为 _）
-          # 例如 x86/64 变为 x86_64
           ARCH_NAME=$(echo "${{ matrix.target }}" | tr '/' '_')
-          TAG_NAME="${{ github.ref_name }}"
           
-          # 3. 进入目录执行重命名
+          # 同样处理重命名逻辑
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ github.event.inputs.version }}"
+          else
+            TAG_NAME="${{ github.ref_name }}"
+          fi
+          
           cd release
           for f in *.ipk; do
             if [ -f "$f" ]; then
-              echo "Renaming $f to ${TAG_NAME}_${ARCH_NAME}_$f"
               mv "$f" "${TAG_NAME}_${ARCH_NAME}_$f"
             fi
           done
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 手动触发时，如果 Tag 不存在，此步骤可能会创建 Draft 或报错
+          # 建议手动测试时仅查看 Artifacts，或者如下配置：
+          tag_name: ${{ github.ref_name }}
+          files: release/*.ipk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # 手动构建时跳过发布到 Release 页面，避免污染正式版（可选）
+        if: github.event_name == 'push'

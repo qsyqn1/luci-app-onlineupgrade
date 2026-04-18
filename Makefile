@@ -12,10 +12,12 @@ LUCI_DEPENDS:=+luci-base +curl +jsonfilter
 include $(INCLUDE_DIR)/package.mk
 
 define Package/luci-app-onlineupgrade
- SECTION:=luci
- CATEGORY:=LuCI
- SUBMENU:=3. Applications
- TITLE:=$(LUCI_TITLE)
+  SECTION:=luci
+  CATEGORY:=LuCI
+  SUBMENU:=3. Applications
+  TITLE:=LuCI support for Online Upgrade
+  DEPENDS:=+luci-base +curl +jsonfilter
+  PKGARCH:=all
 endef
 
 $(eval $(call BuildPackage,luci-app-onlineupgrade))

@@ -19,12 +19,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false # 即使一个架构失败，其他架构也要继续编译
+      fail-fast: false
       matrix:
         target:
           - x86/64
           - ramips/mt7621
-          - rockchip/armv8 # 您设备所在的架构
+          - rockchip/armv8
           # - aarch64/generic # 官方通常不提供此目标的 SDK，建议注释掉
 
     steps:
@@ -45,19 +45,23 @@ jobs:
           
           echo "🌐 Checking SDK at $BASE_URL"
           
-          # 获取包含 SDK 关键字的文件名
-          SDK_NAME=$(curl -sL "$BASE_URL/sha256sums" | grep "openwrt-sdk-" | awk '{print $2}' | head -n 1)
+          # 【关键修复】使用 sed 's/^\*//' 删掉文件名开头的星号
+          SDK_NAME=$(curl -sL "$BASE_URL/sha256sums" | grep "openwrt-sdk-" | awk '{print $2}' | sed 's/^\*//' | head -n 1)
           
           if [ -z "$SDK_NAME" ]; then
-            echo "⚠️ Warning: SDK not found for $TARGET/$SUB. This target might not support SDK builds."
-            echo "Skipping this target..."
-            exit 0 # 使用 exit 0 这样不会让整个流程报错停止
+            echo "⚠️ Warning: SDK not found for $TARGET/$SUB."
+            exit 0
           fi
 
           echo "✅ Found SDK: $SDK_NAME"
+          # 现在下载链接就是正确的了
           wget "$BASE_URL/$SDK_NAME"
           tar xf "$SDK_NAME"
-          mv openwrt-sdk-* sdk
+          
+          # 统一重命名文件夹名为 sdk
+          # 加上 -d 确保只找目录
+          SDK_DIR=$(find . -maxdepth 1 -type d -name "openwrt-sdk-*" | head -n 1)
+          mv "$SDK_DIR" sdk
           echo "SDK_EXISTS=true" >> $GITHUB_ENV
 
       - name: Build IPK

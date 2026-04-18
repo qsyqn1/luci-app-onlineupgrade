@@ -29,19 +29,29 @@ jobs:
 
       - name: Setup OpenWrt SDK
         run: |
-          VERSION="24.10.0"
+          # 优先级：1. 手动输入的版本 2. 默认稳定版 23.05.5
+          # 注意：24.10 目前还未正式发布，建议手动测试时输入 23.05.5
+          VERSION="${{ github.event.inputs.version }}"
+          if [ "$VERSION" = "manual-build" ] || [ -z "$VERSION" ]; then
+            VERSION="23.05.5"
+          fi
+          
           TARGET=$(echo ${{ matrix.target }} | cut -d'/' -f1)
           SUB=$(echo ${{ matrix.target }} | cut -d'/' -f2)
           BASE_URL="https://downloads.openwrt.org/releases/$VERSION/targets/$TARGET/$SUB"
           
-          echo "Fetching SDK filename from $BASE_URL..."
+          echo "Attempting to fetch SDK from $BASE_URL..."
+          
+          # 获取包含 SDK 关键字的文件名
           SDK_NAME=$(curl -sL "$BASE_URL/sha256sums" | grep "openwrt-sdk-" | awk '{print $2}' | head -n 1)
           
           if [ -z "$SDK_NAME" ]; then
-            echo "Error: Could not find SDK for $TARGET/$SUB"
+            echo "❌ Error: Could not find SDK for $TARGET/$SUB at $BASE_URL"
+            echo "Tips: Please check if the version exists on https://downloads.openwrt.org/releases/"
             exit 1
           fi
 
+          echo "✅ Found SDK: $SDK_NAME"
           wget "$BASE_URL/$SDK_NAME"
           tar xf "$SDK_NAME"
           mv openwrt-sdk-* sdk

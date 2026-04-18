@@ -1,16 +1,19 @@
-name: Build & Release (OpenWrt 24.10)
+name: Build & Release (OpenWrt/ImmortalWrt)
 
 on:
   push:
     tags:
-      - 'v*'
-  # 【新增】手动触发配置
+      - 'v*'  # 当推送 v5.1.1 这种 Tag 时触发自动发布
   workflow_dispatch:
     inputs:
-      version:
-        description: '手动构建的版本号 (例如 5.1.1)'
+      sdk_ver:
+        description: 'SDK 系统版本 (用于定位下载地址，如 23.05.5)'
+        required: true
+        default: '23.05.5'
+      pkg_ver:
+        description: '自定义插件版本 (显示在 IPK 中的版本号)'
         required: false
-        default: 'manual-build'
+        default: '5.1.x-test'
 
 jobs:
   build:
@@ -21,18 +24,18 @@ jobs:
           - x86/64
           - ramips/mt7621
           - aarch64/generic
-          - rockchip/armv8
+          - rockchip/armv8  # 适配您的 XiGuaPi V3 设备
 
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup OpenWrt SDK
         run: |
-          # 优先级：1. 手动输入的版本 2. 默认稳定版 23.05.5
-          # 注意：24.10 目前还未正式发布，建议手动测试时输入 23.05.5
-          VERSION="${{ github.event.inputs.version }}"
-          if [ "$VERSION" = "manual-build" ] || [ -z "$VERSION" ]; then
+          # 确定 SDK 版本：优先取手动输入的 sdk_ver，如果是 Tag 触发则默认 23.05.5
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.sdk_ver }}"
+          else
             VERSION="23.05.5"
           fi
           
@@ -40,18 +43,16 @@ jobs:
           SUB=$(echo ${{ matrix.target }} | cut -d'/' -f2)
           BASE_URL="https://downloads.openwrt.org/releases/$VERSION/targets/$TARGET/$SUB"
           
-          echo "Attempting to fetch SDK from $BASE_URL..."
+          echo "🌐 正在从 $BASE_URL 获取 SDK..."
           
-          # 获取包含 SDK 关键字的文件名
+          # 动态获取完整的 SDK 文件名（解决文件名中包含复杂编译器信息的问题）
           SDK_NAME=$(curl -sL "$BASE_URL/sha256sums" | grep "openwrt-sdk-" | awk '{print $2}' | head -n 1)
           
           if [ -z "$SDK_NAME" ]; then
-            echo "❌ Error: Could not find SDK for $TARGET/$SUB at $BASE_URL"
-            echo "Tips: Please check if the version exists on https://downloads.openwrt.org/releases/"
+            echo "❌ 错误: 在 $BASE_URL 找不到 SDK，请确认该版本是否存在。"
             exit 1
           fi
 
-          echo "✅ Found SDK: $SDK_NAME"
           wget "$BASE_URL/$SDK_NAME"
           tar xf "$SDK_NAME"
           mv openwrt-sdk-* sdk
@@ -59,30 +60,35 @@ jobs:
       - name: Build IPK
         run: |
           cd sdk
+          # 将当前源码项目挂载到 SDK 的 package 目录
           ln -s ../../ luci-app-onlineupgrade package/luci-app-onlineupgrade
           
+          # 更新 Feeds 并安装必要依赖
           ./scripts/feeds update -a
           ./scripts/feeds install luci-base
           
-          # 【逻辑优化】判断是 Tag 触发还是手动触发
+          # 确定 IPK 的显示版本号
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            PKG_VER="${{ github.event.inputs.version }}"
+            FINAL_VER="${{ github.event.inputs.pkg_ver }}"
           else
-            PKG_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+            FINAL_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           fi
           
-          make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$PKG_VER"
+          echo "🛠️ 正在编译插件版本: $FINAL_VER"
+          # 执行编译，并将版本号注入到 Makefile
+          make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$FINAL_VER"
 
       - name: Collect and Rename
         run: |
           mkdir -p release
+          # 搜寻生成的 ipk 并拷贝
           find sdk/bin/packages -name "luci-app-onlineupgrade*.ipk" -exec cp {} release/ \;
           
+          # 在 Shell 中处理架构名称中的斜杠
           ARCH_NAME=$(echo "${{ matrix.target }}" | tr '/' '_')
           
-          # 同样处理重命名逻辑
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME="${{ github.event.inputs.version }}"
+            TAG_NAME="${{ github.event.inputs.pkg_ver }}"
           else
             TAG_NAME="${{ github.ref_name }}"
           fi
@@ -90,18 +96,22 @@ jobs:
           cd release
           for f in *.ipk; do
             if [ -f "$f" ]; then
+              # 重命名为: 版本_架构_原文件名.ipk
               mv "$f" "${TAG_NAME}_${ARCH_NAME}_$f"
             fi
           done
 
-      - name: Upload Release
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipk-${{ replace(matrix.target, '/', '_') }}
+          path: release/*.ipk
+
+      - name: Upload to Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          # 手动触发时，如果 Tag 不存在，此步骤可能会创建 Draft 或报错
-          # 建议手动测试时仅查看 Artifacts，或者如下配置：
-          tag_name: ${{ github.ref_name }}
           files: release/*.ipk
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # 手动构建时跳过发布到 Release 页面，避免污染正式版（可选）
-        if: github.event_name == 'push'

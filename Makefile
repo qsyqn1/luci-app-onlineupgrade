@@ -25,16 +25,20 @@ endef
 # 【关键修复 2】定义安装逻辑
 # 请确保你的源码目录里有对应的文件夹
 define Package/luci-app-onlineupgrade/install
-	# 创建目标目录
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci
-	# 拷贝 luasrc 下的所有内容（如果有）
-	[ -d ./luasrc ] && $(CP) ./luasrc/* $(1)/usr/lib/lua/luci/ || true
+	# 1. 安装 Controller (Lua 脚本)
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
+	$(CP) ./luasrc/controller/* $(1)/usr/lib/lua/luci/controller/
 
-	# 拷贝 root 下的所有内容到系统根目录
-	[ -d ./root ] && $(CP) ./root/* $(1)/ || true
+	# 2. 安装 View (HTM 模板) - 这里的 ota 文件夹必须对应
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/ota
+	$(CP) ./luasrc/view/ota/* $(1)/usr/lib/lua/luci/view/ota/
+
+	# 3. 安装配置文件或启动脚本 (如果有)
+	$(INSTALL_DIR) $(1)/etc/config
+	[ -d ./root/etc/config ] && $(CP) ./root/etc/config/* $(1)/etc/config/ || true
 	
-	# 如果有脚本需要执行权限
-	[ -f $(1)/etc/init.d/onlineupgrade ] && chmod 755 $(1)/etc/init.d/onlineupgrade || true
+	$(INSTALL_DIR) $(1)/etc/init.d
+	[ -d ./root/etc/init.d ] && $(CP) ./root/etc/init.d/* $(1)/etc/init.d/ || true
 endef
 
 $(eval $(call BuildPackage,luci-app-onlineupgrade))

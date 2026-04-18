@@ -69,12 +69,12 @@ jobs:
         run: |
           cd sdk
           
-          # 1. 物理拷贝源码（排除 sdk 目录），确保文件就在 package 目录下
+          # 1. 物理拷贝源码
           rm -rf package/luci-app-onlineupgrade
           mkdir -p package/luci-app-onlineupgrade
           find .. -maxdepth 1 ! -name "sdk" ! -name ".." ! -name "." -exec cp -r {} package/luci-app-onlineupgrade/ \;
           
-          # 2. 初始化 Feeds 并强制安装依赖
+          # 2. 准备 Feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
@@ -85,18 +85,17 @@ jobs:
             FINAL_VER=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           fi
 
-          # 4. 关键：强制生成配置文件并检查是否包含该插件
-          # 如果这里 grep 不到，说明 Makefile 里的 PKG_NAME 有问题
+          # 4. 【核心修复】将版本号直接写入 Makefile，而不是通过命令行传递
+          # 这样可以确保版本号只对你的插件生效，不影响 libjson-c 等依赖包
+          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=$FINAL_VER/" package/luci-app-onlineupgrade/Makefile
+
+          # 5. 配置与编译
           echo "CONFIG_PACKAGE_luci-app-onlineupgrade=m" > .config
           make defconfig
           
-          echo "🛠️ 检查配置状态:"
-          grep "CONFIG_PACKAGE_luci-app-onlineupgrade" .config || echo "❌ 插件未被选中"
-
           echo "🛠️ 开始编译插件版本: $FINAL_VER"
-          # 5. 强制清理并编译
-          make package/luci-app-onlineupgrade/clean
-          make package/luci-app-onlineupgrade/compile V=s PKG_VERSION="$FINAL_VER"
+          # 注意：这里不再在命令行带 PKG_VERSION 变量
+          make package/luci-app-onlineupgrade/compile V=s -j$(nproc)
           
       - name: Debug Directory Structure
         run: |
